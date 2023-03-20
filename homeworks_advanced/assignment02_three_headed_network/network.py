@@ -8,43 +8,73 @@ import torch.nn.functional as F
 
 import tqdm
 
+class Flatten(nn.Module):
+    def forward(self, input):
+        return input.view(input.size(0), -1)
+
+class Reorder(nn.Module):
+    def forward(self, input):
+        return input.permute((0, 2, 1))
+
 
 class ThreeInputsNet(nn.Module):
     def __init__(self, n_tokens, n_cat_features, concat_number_of_features, hid_size=64):
         super(ThreeInputsNet, self).__init__()
-        self.title_emb = nn.Embedding(n_tokens, embedding_dim=hid_size)
-        # <YOUR CODE HERE>        
-        
-        self.full_emb = nn.Embedding(num_embeddings=n_tokens, embedding_dim=hid_size)
-        # <YOUR CODE HERE>
-        
-        self.category_out = # <YOUR CODE HERE>
-
+        self.title = nn.Sequential(
+            nn.Embedding(n_tokens, embedding_dim=hid_size),
+            Reorder(),
+            nn.Conv1d(hid_size, hid_size, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv1d(hid_size, hid_size, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv1d(hid_size, hid_size, kernel_size=2),
+            # nn.BatchNorm1d(hid_size)
+            nn.ReLU(),
+            nn.AdaptiveMaxPool1d(1),
+            Flatten()
+        )
+        self.full = nn.Sequential(
+            nn.Embedding(n_tokens, embedding_dim=hid_size),
+            Reorder(),
+            nn.Conv1d(hid_size, hid_size, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv1d(hid_size, hid_size, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv1d(hid_size, hid_size, kernel_size=2),
+            # nn.BatchNorm1d(hid_size),
+            nn.ReLU(),
+            nn.AdaptiveMaxPool1d(1),
+            Flatten()
+        )
+        self.category = nn.Sequential(
+            nn.Linear(n_cat_features, 4 * hid_size),
+            nn.ReLU(),
+            nn.Linear(4 * hid_size, 2 * hid_size),
+            nn.BatchNorm1d(2 * hid_size),
+            nn.ReLU(),
+            Flatten()
+        )
 
         # Example for the final layers (after the concatenation)
-        self.inter_dense = nn.Linear(in_features=concat_number_of_features, out_features=hid_size*2)
-        self.final_dense = nn.Linear(in_features=hid_size*2, out_features=1)
+        self.dense = nn.Sequential(
+            nn.Linear(in_features=concat_number_of_features, out_features=4 * hid_size),
+            nn.ReLU(),
+            nn.Linear(4 * hid_size, 2 * hid_size),
+            nn.ReLU(),
+            nn.Linear(in_features=hid_size*2, out_features=1)
+        )
 
         
 
     def forward(self, whole_input):
         input1, input2, input3 = whole_input
-        title_beg = self.title_emb(input1).permute((0, 2, 1))
-        title = # <YOUR CODE HERE>
+        title = self.title(input1)
+        full = self.full(input2)
+        category = self.category(input3)
         
-        full_beg = self.full_emb(input2).permute((0, 2, 1))
-        full = # <YOUR CODE HERE>        
         
-        category = # <YOUR CODE HERE>        
+        concatenated = torch.cat([title, full, category], dim=1)
         
-        concatenated = torch.cat(
-            [
-            title.view(title.size(0), -1),
-            full.view(full.size(0), -1),
-            category.view(category.size(0), -1)
-            ],
-            dim=1)
-        
-        out = # <YOUR CODE HERE>
+        out = self.dense(concatenated)
         
         return out
